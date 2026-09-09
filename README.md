@@ -2,7 +2,7 @@
 
 ForgeFlow 是一个面向排程主管、线长和 IE 工程师的制造作业规划参考实现。系统以 FastAPI、LangGraph 和 Vue 3 为基础，将资源读取、班组校验、工位分配、方案生成和人工审核组织成可恢复、可追踪的五节点流程。
 
-项目提供可直接运行的内置数据适配器，同时保留 MES、设备平台和排班系统的 HTTP 接口边界。当前版本适合作为业务验证、系统联调和生产化改造的工程基线；它不是任何企业的生产源码，也不代表已经通过真实产线验收。
+项目提供可直接运行的内置资料适配器，并实现 MES、WMS、EAM、HR、QMS 的版本化 HTTP 数据契约。运行时支持本地 SQLite/inline 和企业 PostgreSQL/Redis/Celery 两套剖面；它不是任何企业的生产源码，也不代表已经通过真实产线验收。
 
 ## 功能
 
@@ -12,6 +12,9 @@ ForgeFlow 是一个面向排程主管、线长和 IE 工程师的制造作业规
 - 资源台账：展示设备状态、OEE、产能、维护窗口、班组到岗和技能矩阵；
 - 版本比较：比较准时率、平均负载、加班、换线和风险；
 - 运行追踪：按 `task_id` 与 `trace_id` 查看节点摘要和人工操作记录；
+- 可靠任务：幂等提交、Redis 分布式锁、Celery worker 与任务状态查询；
+- 一致性发布：审核记录与 MES 下发意图通过 Transactional Outbox 原子提交；
+- 影子验证：使用五套系统的只读快照核验七类约束，并与人工计划指标对照；
 - 多模型适配：DeepSeek、阿里云百炼和 OpenAI 兼容接口，可按配置降级；
 - 三语界面：默认繁体中文，支持简体中文与英文。
 
@@ -24,14 +27,16 @@ Vue 3 工作台
 FastAPI API ─────────────── request_id / 参数校验
       │
       ▼
-SchedulingService ──────── SQLite TaskRepository
-      │                    任务快照 / 版本历史 / 审核记录
+SchedulingService ──────── SQLAlchemy TaskRepository
+      │                    SQLite（本地）/ PostgreSQL（企业）
+      ├── Redis ────────── 幂等键 / 分布式排程锁
+      ├── Celery ───────── 异步任务 / 重试 / Outbox 发布
       ▼
 LangGraph StateGraph
   设备资源 → 班组与工单 → 工位分配 → 方案生成 → 人工审核
       │
       ├── Built-in WorkshopGateway
-      └── HTTP WorkshopGateway ── MES / EAM / HR
+      └── HTTP WorkshopGateway ── MES / WMS / EAM / HR / QMS
 
 确定性规划器负责生成可执行基线
 LLM 负责方案说明、风险摘要和建议增强
@@ -46,7 +51,7 @@ LLM 不直接决定生产下发。业务约束和分配规则在确定性规划�
 
 ```powershell
 git clone <your-repository-url>
-cd map-traveller
+cd ForgeFlow-Workshop-Agent
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -74,6 +79,14 @@ npm run dev
 
 默认配置使用内置基线数据和确定性规划器，不需要配置 LLM 密钥，也不会访问外部业务系统。
 
+如需启动 PostgreSQL、Redis、API、Celery worker 与 beat 的完整基础设施：
+
+```powershell
+docker compose up --build
+```
+
+两套运行剖面及部署说明见[企业运行配置](docs/enterprise-runtime.md)。
+
 ## 配置真实接口
 
 复制 `backend/.env.example` 后配置：
@@ -88,12 +101,16 @@ BUSINESS_API_TIMEOUT_SECONDS=5
 
 | 系统 | 方法与路径 | 数据范围 |
 |---|---|---|
-| EAM / 设备平台 | `GET /v1/equipment/available` | 设备、工位、能力、状态、OEE、产能 |
-| HR / 排班 | `GET /v1/workforce/shifts` | 班次、班组、到岗、技能 |
+| EAM | `GET /v1/eam/equipment` | 设备、工位、能力、状态、OEE、产能 |
+| EAM | `GET /v1/eam/tooling` | 治具兼容性、占用和维护状态 |
+| HR | `GET /v1/hr/shifts` | 班次、班组、到岗、技能 |
 | MES | `GET /v1/mes/work-orders` | 待排工单与工艺路线 |
+| MES | `GET /v1/mes/manual-plans` | 历史人工计划对照指标 |
+| WMS | `GET /v1/wms/material-readiness` | 工单齐套量、批次和预计齐套时间 |
+| QMS | `GET /v1/qms/quality-constraints` | 放行、冻结、首件检查要求 |
 | MES | `POST /v1/mes/schedule-plans` | 审核后的计划下发 |
 
-企业字段映射集中在 `backend/app/services/business_gateway.py`，Agent 节点不直接依赖外部系统的数据结构。
+所有读取接口必须返回 `source_version`、`captured_at` 和 `data`。完整字段规范见 [OpenAPI 数据契约](docs/integration-contracts.openapi.yaml)，企业字段映射集中在 `backend/app/services/business_gateway.py`，Agent 节点不直接依赖外部系统的数据结构。
 
 ## API
 
@@ -101,11 +118,15 @@ BUSINESS_API_TIMEOUT_SECONDS=5
 |---|---|---|
 | POST | `/api/scheduling/plan/stream` | SSE 流式执行作业规划 |
 | POST | `/api/scheduling/plan` | 同步创建规划任务 |
+| POST | `/api/scheduling/jobs` | 幂等提交队列任务 |
+| GET | `/api/scheduling/jobs/{job_id}` | 查询队列执行状态 |
 | GET | `/api/scheduling/tasks` | 查询最近任务 |
 | GET | `/api/scheduling/tasks/{task_id}` | 恢复任务快照 |
 | POST | `/api/scheduling/tasks/{task_id}/review` | 核准、修改或退回计划 |
 | GET | `/api/scheduling/resources` | 获取可追溯资源快照 |
 | GET | `/api/scheduling/plans/versions` | 获取方案版本与比较指标 |
+| POST | `/api/scheduling/shadow-runs` | 五系统只读影子验证 |
+| GET | `/api/scheduling/shadow-runs/{shadow_run_id}` | 获取影子验证报告 |
 | GET | `/api/config/runtime` | 查询运行配置与模型状态 |
 
 旧 SSE 地址 `/api/trip/plan/stream` 仅作为迁移兼容层保留。
@@ -134,13 +155,12 @@ GitHub Actions 会在每次 push 和 pull request 时执行后端测试、前端
 
 ## 当前边界
 
-当前实现仍属于工程化基线，生产接入前需要完成：
+当前实现已经完成可替换的企业运行底座，但生产接入前仍需要完成：
 
-- 使用 PostgreSQL、Redis 和任务队列替换单机状态组件；
-- 引入 Transactional Outbox，保证审核事实与 MES 下发的一致性；
 - 接入 OR-Tools CP-SAT，补齐物料、治具、换线、设备日历和人员技能硬约束；
+- 将自动建表替换为 Alembic 受控迁移，并完成容量、故障与恢复压测；
 - 完成 SSO/RBAC、密钥托管、不可篡改审计、监控告警和多实例容灾；
-- 使用真实历史数据进行影子运行、人工计划对照和单车间灰度验证。
+- 使用经授权的真实历史数据运行现有影子验证流程，确定准入阈值后开展单车间灰度。
 
 完整演进路径与验收门槛见[生产化落地方案](docs/生產化落地方案.md)。
 

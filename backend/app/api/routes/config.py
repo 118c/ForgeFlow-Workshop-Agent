@@ -14,7 +14,9 @@ async def runtime_config():
     settings = get_settings()
     return {
         "environment": settings.environment,
-        "default_data_source": "mock" if settings.environment == "demo" else "real",
+        "profile": settings.app_profile,
+        "task_execution": settings.task_execution_mode,
+        "default_data_source": "mock" if settings.app_profile == "local" else "real",
         "business_api_configured": bool(settings.business_api_base_url),
         "providers": LLMFactory.available_providers(),
         "features": {
@@ -22,6 +24,8 @@ async def runtime_config():
             "human_in_the_loop": True,
             "durable_snapshot": True,
             "provider_failover": True,
+            "transactional_outbox": True,
+            "shadow_validation": True,
         },
     }
 

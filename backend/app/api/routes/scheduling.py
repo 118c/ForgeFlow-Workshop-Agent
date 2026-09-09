@@ -3,12 +3,15 @@
 import json
 from typing import AsyncIterator, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from ...models.schemas import DataSource, PlanVersion, ResourceSnapshot, ReviewRequest, SchedulingRequest, TaskSnapshot
+from ...integrations.contracts import ShadowRunReport, ShadowRunRequest
+from ...models.schemas import DataSource, PlanVersion, QueueJob, ResourceSnapshot, ReviewRequest, SchedulingRequest, TaskSnapshot
 from ...repositories.task_repository import VersionConflictError, get_task_repository
 from ...services.scheduling_service import SchedulingService, get_scheduling_service
+from ...services.queue_service import submit_job
+from ...services.shadow_service import run_shadow_validation
 from ...services.workbench_service import list_plan_versions, read_resource_snapshot
 
 
@@ -31,6 +34,20 @@ async def _event_stream(request: SchedulingRequest, service: SchedulingService) 
 @router.post("/plan", response_model=TaskSnapshot)
 async def create_plan(request: SchedulingRequest, service: SchedulingService = Depends(get_scheduling_service)):
     return await service.run(request)
+
+
+@router.post("/jobs", response_model=QueueJob)
+async def enqueue_plan(request: SchedulingRequest, idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key")):
+    """提交可幂等的排程任务；企业模式由 Celery 异步执行。"""
+    return await submit_job(request, idempotency_key)
+
+
+@router.get("/jobs/{job_id}", response_model=QueueJob)
+async def get_job(job_id: str):
+    job = get_task_repository().get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="任务队列记录不存在")
+    return job
 
 
 @router.post("/plan/stream")
@@ -81,6 +98,23 @@ async def get_plan_versions(
 ):
     """读取同一任务的历史修订，或同车间生产日的候选方案。"""
     return list_plan_versions(task_id, workshop_id, production_date, limit)
+
+
+@router.post("/shadow-runs", response_model=ShadowRunReport)
+async def create_shadow_run(command: ShadowRunRequest):
+    """以真实或基线资料验证候选方案，固定禁止写回 MES。"""
+    try:
+        return await run_shadow_validation(command)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="任务不存在或尚无候选方案")
+
+
+@router.get("/shadow-runs/{shadow_run_id}", response_model=ShadowRunReport)
+async def get_shadow_run(shadow_run_id: str):
+    report = get_task_repository().get_shadow_report(shadow_run_id, ShadowRunReport)
+    if not report:
+        raise HTTPException(status_code=404, detail="影子验证记录不存在")
+    return report
 
 
 @router.post("/tasks/{task_id}/review", response_model=TaskSnapshot)

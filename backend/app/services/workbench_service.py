@@ -52,7 +52,7 @@ def _minutes_after_shift(assignment_end: str) -> int:
     return max(0, int((end_at - regular_end).total_seconds() // 60))
 
 
-def _metrics(snapshot: TaskSnapshot, plan: SchedulingPlan) -> PlanVersionMetrics:
+def calculate_plan_metrics(snapshot: TaskSnapshot, plan: SchedulingPlan) -> PlanVersionMetrics:
     assignments_by_device: dict[str, list] = defaultdict(list)
     completion_by_order: dict[str, datetime] = {}
     overtime_minutes = 0
@@ -97,7 +97,7 @@ def _as_version(snapshot: TaskSnapshot) -> PlanVersion:
         created_at=snapshot.created_at,
         updated_at=snapshot.updated_at,
         plan=snapshot.plan,
-        metrics=_metrics(snapshot, snapshot.plan),
+        metrics=calculate_plan_metrics(snapshot, snapshot.plan),
     )
 
 

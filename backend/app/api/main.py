@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from ..core.config import get_settings
 from ..core.llm import LLMFactory
+from ..core.redis_runtime import get_coordinator
 from ..repositories.task_repository import get_task_repository
 from .routes import config, scheduling
 
@@ -78,10 +79,19 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health():
         providers = LLMFactory.available_providers()
+        components = {"database": "ready", "redis": "local" if not settings.enterprise_mode else "ready"}
+        try:
+            get_task_repository().healthcheck()
+            if settings.enterprise_mode:
+                get_coordinator().ping()
+        except Exception as exc:
+            components["error"] = str(exc)
         return {
-            "status": "healthy",
+            "status": "healthy" if "error" not in components else "degraded",
             "environment": settings.environment,
-            "database": "ready",
+            "profile": settings.app_profile,
+            "task_execution": settings.task_execution_mode,
+            "components": components,
             "mock_gateway": "ready",
             "configured_llm_count": sum(1 for item in providers if item["configured"]),
         }

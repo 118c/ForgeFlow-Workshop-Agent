@@ -1,0 +1,113 @@
+openapi: 3.1.0
+info:
+  title: ForgeFlow Enterprise Integration Contracts
+  version: 1.0.0
+  description: MES、WMS、EAM、HR、QMS 只读资料与 MES 计划下发边界。所有读取回应必须携带版本与采集时间。
+paths:
+  /v1/mes/work-orders:
+    get:
+      summary: 读取待排工单与工艺路线
+      parameters:
+        - {$ref: '#/components/parameters/PlanningScope'}
+        - {$ref: '#/components/parameters/ProductionDate'}
+      responses: {'200': {description: 工单快照, content: {application/json: {schema: {$ref: '#/components/schemas/WorkOrderEnvelope'}}}}}
+  /v1/wms/material-readiness:
+    get:
+      summary: 读取工单物料齐套状态
+      parameters: [{$ref: '#/components/parameters/FactoryId'}, {$ref: '#/components/parameters/PlanningScope'}, {$ref: '#/components/parameters/ProductionDate'}]
+      responses: {'200': {description: 物料快照, content: {application/json: {schema: {$ref: '#/components/schemas/MaterialEnvelope'}}}}}
+  /v1/eam/equipment:
+    get:
+      summary: 读取设备日历、状态与制程能力
+      parameters: [{$ref: '#/components/parameters/FactoryId'}, {$ref: '#/components/parameters/PlanningScope'}, {$ref: '#/components/parameters/ProductionDate'}]
+      responses: {'200': {description: 设备快照, content: {application/json: {schema: {$ref: '#/components/schemas/EquipmentEnvelope'}}}}}
+  /v1/eam/tooling:
+    get:
+      summary: 读取治具兼容性与可用状态
+      parameters: [{$ref: '#/components/parameters/FactoryId'}, {$ref: '#/components/parameters/PlanningScope'}, {$ref: '#/components/parameters/ProductionDate'}]
+      responses: {'200': {description: 治具快照, content: {application/json: {schema: {$ref: '#/components/schemas/ToolingEnvelope'}}}}}
+  /v1/hr/shifts:
+    get:
+      summary: 读取班组、出勤与技能矩阵
+      parameters: [{$ref: '#/components/parameters/FactoryId'}, {$ref: '#/components/parameters/PlanningScope'}, {$ref: '#/components/parameters/ProductionDate'}]
+      responses: {'200': {description: 班组快照, content: {application/json: {schema: {$ref: '#/components/schemas/ShiftEnvelope'}}}}}
+  /v1/qms/quality-constraints:
+    get:
+      summary: 读取产品质量放行与首件检查要求
+      parameters: [{$ref: '#/components/parameters/FactoryId'}, {$ref: '#/components/parameters/PlanningScope'}, {$ref: '#/components/parameters/ProductionDate'}]
+      responses: {'200': {description: 质量快照, content: {application/json: {schema: {$ref: '#/components/schemas/QualityEnvelope'}}}}}
+  /v1/mes/manual-plans:
+    get:
+      summary: 读取人工计划对照指标
+      parameters: [{$ref: '#/components/parameters/PlanningScope'}, {$ref: '#/components/parameters/ProductionDate'}]
+      responses: {'200': {description: 人工计划基准, content: {application/json: {schema: {$ref: '#/components/schemas/ManualPlanEnvelope'}}}}}
+  /v1/mes/schedule-plans:
+    post:
+      summary: 下发经人工核准的计划
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: {type: string}
+      requestBody: {required: true, content: {application/json: {schema: {type: object, required: [task_id, plan], properties: {task_id: {type: string}, plan: {type: object}}}}}}
+      responses: {'202': {description: 已受理}}
+components:
+  parameters:
+    FactoryId:
+      in: query
+      name: factory_id
+      required: true
+      schema: {type: string}
+    PlanningScope:
+      in: query
+      name: workshop_id
+      required: true
+      schema: {type: string}
+    ProductionDate:
+      in: query
+      name: date
+      required: true
+      schema: {type: string, format: date}
+  schemas:
+    Envelope:
+      type: object
+      required: [source_version, captured_at, data]
+      properties:
+        source_version: {type: string, minLength: 1}
+        captured_at: {type: string, format: date-time}
+        data: {}
+    WorkOrderEnvelope: {allOf: [{$ref: '#/components/schemas/Envelope'}, {properties: {data: {type: array, items: {$ref: '#/components/schemas/WorkOrder'}}}}]}
+    MaterialEnvelope: {allOf: [{$ref: '#/components/schemas/Envelope'}, {properties: {data: {type: array, items: {$ref: '#/components/schemas/MaterialReadiness'}}}}]}
+    EquipmentEnvelope: {allOf: [{$ref: '#/components/schemas/Envelope'}, {properties: {data: {type: array, items: {$ref: '#/components/schemas/Equipment'}}}}]}
+    ToolingEnvelope: {allOf: [{$ref: '#/components/schemas/Envelope'}, {properties: {data: {type: array, items: {$ref: '#/components/schemas/Tooling'}}}}]}
+    ShiftEnvelope: {allOf: [{$ref: '#/components/schemas/Envelope'}, {properties: {data: {type: array, items: {$ref: '#/components/schemas/Shift'}}}}]}
+    QualityEnvelope: {allOf: [{$ref: '#/components/schemas/Envelope'}, {properties: {data: {type: array, items: {$ref: '#/components/schemas/QualityConstraint'}}}}]}
+    ManualPlanEnvelope: {allOf: [{$ref: '#/components/schemas/Envelope'}, {properties: {data: {$ref: '#/components/schemas/ManualPlan'}}}]}
+    WorkOrder:
+      type: object
+      required: [order_id, product_code, quantity, due_at, process_route]
+      properties: {order_id: {type: string}, product_code: {type: string}, quantity: {type: integer}, priority: {type: integer}, due_at: {type: string, format: date-time}, process_route: {type: array, items: {type: string}}, cycle_time_seconds: {type: integer}}
+    MaterialReadiness:
+      type: object
+      required: [order_id, material_code, required_quantity, available_quantity]
+      properties: {order_id: {type: string}, material_code: {type: string}, required_quantity: {type: integer}, available_quantity: {type: integer}, ready_at: {type: string, format: date-time}, lot_codes: {type: array, items: {type: string}}}
+    Equipment:
+      type: object
+      required: [device_id, station_code, capability, status, capacity_per_hour]
+      properties: {device_id: {type: string}, name: {type: string}, line_code: {type: string}, station_code: {type: string}, capability: {type: array, items: {type: string}}, status: {type: string}, oee: {type: number}, capacity_per_hour: {type: integer}, next_maintenance_at: {type: string, format: date-time}}
+    Tooling:
+      type: object
+      required: [tool_id, compatible_products, status]
+      properties: {tool_id: {type: string}, name: {type: string}, compatible_products: {type: array, items: {type: string}}, status: {enum: [available, reserved, maintenance]}, available_from: {type: string, format: date-time}}
+    Shift:
+      type: object
+      required: [shift_code, team_id, start_at, end_at, headcount, skill_tags]
+      properties: {shift_code: {type: string}, team_id: {type: string}, team_name: {type: string}, start_at: {type: string, format: date-time}, end_at: {type: string, format: date-time}, headcount: {type: integer}, skill_tags: {type: array, items: {type: string}}, attendance_rate: {type: number}}
+    QualityConstraint:
+      type: object
+      required: [product_code, quality_status]
+      properties: {product_code: {type: string}, quality_status: {enum: [released, hold, blocked]}, first_article_required: {type: boolean}, inspection_minutes: {type: integer}, blocked_lots: {type: array, items: {type: string}}}
+    ManualPlan:
+      type: object
+      required: [reference_id, workshop_id, production_date, metrics]
+      properties: {reference_id: {type: string}, workshop_id: {type: string}, production_date: {type: string, format: date}, metrics: {type: object}}

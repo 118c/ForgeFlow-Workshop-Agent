@@ -34,6 +34,13 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
 
 
+class QueueJobStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class ReviewAction(str, Enum):
     APPROVE = "approve"
     MODIFY = "modify"
@@ -258,6 +265,18 @@ class TaskSnapshot(BaseModel):
     warnings: List[str] = Field(default_factory=list)
     reviews: List[ReviewRecord] = Field(default_factory=list)
     version: int = 1
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class QueueJob(BaseModel):
+    job_id: str
+    idempotency_key: str
+    status: QueueJobStatus = QueueJobStatus.QUEUED
+    request: SchedulingRequest
+    task_id: Optional[str] = None
+    result: Optional[TaskSnapshot] = None
+    error: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

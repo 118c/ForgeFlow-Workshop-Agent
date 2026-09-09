@@ -1,6 +1,7 @@
 """集中配置。生产密钥只从环境变量读取。"""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List
 
 from pydantic_settings import BaseSettings
@@ -9,7 +10,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "ForgeFlow 车间多任务作业规划 Agent"
     app_version: str = "3.0.0"
-    environment: str = "demo"
+    environment: str = "local"
+    app_profile: str = "local"
     debug: bool = False
     host: str = "0.0.0.0"
     port: int = 8000
@@ -33,6 +35,18 @@ class Settings(BaseSettings):
     business_api_key: str = ""
     business_api_timeout_seconds: float = 5.0
     task_db_path: str = "./data/forgeflow.db"
+    database_url: str = ""
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
+    redis_url: str = "redis://localhost:6379/0"
+    redis_key_prefix: str = "forgeflow"
+    task_execution_mode: str = "inline"
+    celery_broker_url: str = "redis://localhost:6379/1"
+    celery_result_backend: str = "redis://localhost:6379/2"
+    celery_task_time_limit_seconds: int = 300
+    idempotency_ttl_seconds: int = 86400
+    outbox_claim_lease_seconds: int = 60
+    shadow_data_max_age_seconds: int = 900
     mock_latency_ms: int = 180
 
     langchain_tracing_v2: bool = False
@@ -51,6 +65,16 @@ class Settings(BaseSettings):
 
     def get_llm_fallback_order(self) -> List[str]:
         return [item.strip() for item in self.llm_fallback_order.split(",") if item.strip()]
+
+    def get_database_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        path = Path(self.task_db_path).resolve().as_posix()
+        return f"sqlite+pysqlite:///{path}"
+
+    @property
+    def enterprise_mode(self) -> bool:
+        return self.app_profile.lower() == "enterprise"
 
 
 @lru_cache()

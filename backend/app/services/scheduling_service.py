@@ -5,7 +5,7 @@ import uuid
 from typing import Any, AsyncIterator, Dict, Optional
 
 from ..agents.graph import get_graph
-from ..agents.tools import get_toolset
+from ..core.config import get_settings
 from ..core.memory import get_memory_manager
 from ..models.schemas import (
     AgentState,
@@ -19,6 +19,7 @@ from ..models.schemas import (
     TaskStatus,
 )
 from ..repositories.task_repository import TaskRepository, get_task_repository
+from .outbox_service import dispatch_outbox_once
 
 
 NODE_MESSAGES = {
@@ -181,16 +182,32 @@ class SchedulingService:
                 modifications=command.modifications,
             )
         )
-        saved = self.repository.save(snapshot, expected_version=command.expected_version)
-        if saved.status == TaskStatus.APPROVED and saved.plan:
-            try:
-                result = await get_toolset(saved.request.data_source.value).publish_approved_plan(
-                    task_id, saved.plan.model_dump(mode="json")
-                )
-                saved.warnings.append("MES 下发回执: %s" % result.get("external_plan_id", "accepted"))
-            except Exception as exc:
-                # 审核事实已经落盘，下发失败进入可重试告警，不能回滚人的审批动作。
-                saved.warnings.append("MES 下发失败，等待重试: %s" % exc)
+        outbox_event = None
+        if snapshot.status == TaskStatus.APPROVED and snapshot.plan:
+            outbox_event = {
+                "event_id": "evt-%s" % uuid.uuid4().hex,
+                "event_type": "mes.plan.release.requested",
+                "aggregate_id": task_id,
+                "payload": {
+                    "data_source": snapshot.request.data_source.value,
+                    "plan": snapshot.plan.model_dump(mode="json"),
+                },
+            }
+            if get_settings().task_execution_mode.lower() == "celery":
+                snapshot.warnings.append("MES 下发请求已写入可靠事件队列")
+
+        # 审核事实与 MES 下发意图在同一数据库事务中提交。
+        saved = self.repository.save(
+            snapshot,
+            expected_version=command.expected_version,
+            outbox_event=outbox_event,
+        )
+        if outbox_event and get_settings().task_execution_mode.lower() != "celery":
+            delivery = await dispatch_outbox_once(self.repository, limit=1)
+            if delivery and delivery[0]["status"] == "published":
+                saved.warnings.append("MES 下发回执: %s" % delivery[0]["receipt"])
+            elif delivery:
+                saved.warnings.append("MES 下发失败，已进入重试队列: %s" % delivery[0].get("error", "unknown"))
             saved = self.repository.save(saved)
         return saved
 
