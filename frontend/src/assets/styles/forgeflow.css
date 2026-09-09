@@ -1,0 +1,39 @@
+:root {
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  color: #e8eee9;
+  background: #0b1114;
+  font-synthesis: none;
+  --iron: #0b1114;
+  --gunmetal: #152026;
+  --steel: #26343a;
+  --paper: #e8eee9;
+  --muted: #91a0a3;
+  --coolant: #58c4d6;
+  --safety: #f5a623;
+  --oxide: #c55a3d;
+  --ok: #75c69a;
+}
+
+* { box-sizing: border-box; }
+html, body, #app { margin: 0; min-height: 100%; background: var(--iron); }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--coolant); outline-offset: 2px;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: .12;
+  background-image: linear-gradient(rgba(88,196,214,.18) 1px, transparent 1px), linear-gradient(90deg, rgba(88,196,214,.18) 1px, transparent 1px);
+  background-size: 42px 42px;
+  mask-image: linear-gradient(to bottom, black, transparent 80%);
+}
+
+.mono { font-family: "Cascadia Mono", Consolas, monospace; }
+.panel { background: rgba(21,32,38,.93); border: 1px solid rgba(145,160,163,.2); box-shadow: 0 18px 50px rgba(0,0,0,.2); }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }

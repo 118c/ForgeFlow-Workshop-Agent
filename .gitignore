@@ -1,0 +1,43 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+backend/.env
+backend/data/
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+
+# Frontend build
+frontend/node_modules/
+frontend/dist/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Local verification output
+/artifacts/
+
+# Private learning and interview notes
+/项目介绍/
+/docs/改造方案.md
+/docs/面试演示手册.md
