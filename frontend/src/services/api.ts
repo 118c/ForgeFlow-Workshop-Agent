@@ -1,4 +1,4 @@
-import type { PlanVersion, ResourceSnapshot, SchedulingRequest, StreamEvent, TaskSnapshot } from '../types'
+import type { HistoricalReplayReport, PlanVersion, ResourceSnapshot, RolloutPolicy, SchedulingRequest, StreamEvent, TaskSnapshot } from '../types'
 
 const API_BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000')
 
@@ -94,4 +94,24 @@ export async function getPlanVersions(filters: {
   if (filters.productionDate) params.set('production_date', filters.productionDate)
   params.set('limit', String(filters.limit || 20))
   return requestJson<PlanVersion[]>(`/api/scheduling/plans/versions?${params}`)
+}
+
+export async function getRolloutPolicy(workshopId: string): Promise<RolloutPolicy> {
+  return requestJson<RolloutPolicy>(`/api/scheduling/rollouts/${encodeURIComponent(workshopId)}`)
+}
+
+export async function getRolloutHistory(workshopId: string): Promise<RolloutPolicy[]> {
+  return requestJson<RolloutPolicy[]>(`/api/scheduling/rollouts/${encodeURIComponent(workshopId)}/history`)
+}
+
+export async function updateRolloutPolicy(workshopId: string, policy: Pick<RolloutPolicy, 'mode' | 'traffic_percent' | 'updated_by' | 'reason'> & { expected_version: number }): Promise<RolloutPolicy> {
+  return requestJson<RolloutPolicy>(`/api/scheduling/rollouts/${encodeURIComponent(workshopId)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(policy) })
+}
+
+export async function rollbackRolloutPolicy(workshopId: string, expectedVersion: number): Promise<RolloutPolicy> {
+  return requestJson<RolloutPolicy>(`/api/scheduling/rollouts/${encodeURIComponent(workshopId)}/rollback`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updated_by: 'release-operator', reason: '运行策略回退', expected_version: expectedVersion }) })
+}
+
+export async function runHistoricalReplay(sourceTaskId: string, dataSource: 'mock' | 'real'): Promise<HistoricalReplayReport> {
+  return requestJson<HistoricalReplayReport>('/api/scheduling/replays', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source_task_id: sourceTaskId, data_source: dataSource, requested_by: 'IE 工程师' }) })
 }

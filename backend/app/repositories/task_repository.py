@@ -27,7 +27,7 @@ from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import IntegrityError
 
 from ..core.config import get_settings
-from ..models.schemas import QueueJob, QueueJobStatus, ReviewRecord, SchedulingRequest, TaskSnapshot, utc_now
+from ..models.schemas import HistoricalReplayReport, QueueJob, QueueJobStatus, ReviewRecord, RolloutPolicy, SchedulingRequest, TaskSnapshot, utc_now
 
 
 class VersionConflictError(RuntimeError):
@@ -100,6 +100,24 @@ shadow_runs = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
 )
 Index("idx_shadow_runs_task", shadow_runs.c.task_id, shadow_runs.c.created_at)
+
+historical_replays = Table(
+    "historical_replays", metadata,
+    Column("replay_id", String(64), primary_key=True), Column("source_task_id", String(64), nullable=False),
+    Column("status", String(32), nullable=False), Column("payload", Text, nullable=False), Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index("idx_replays_source", historical_replays.c.source_task_id, historical_replays.c.created_at)
+
+rollout_policies = Table(
+    "rollout_policies", metadata,
+    Column("workshop_id", String(64), primary_key=True), Column("version", Integer, nullable=False),
+    Column("mode", String(24), nullable=False), Column("payload", Text, nullable=False), Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+rollout_policy_history = Table(
+    "rollout_policy_history", metadata,
+    Column("workshop_id", String(64), primary_key=True), Column("version", Integer, primary_key=True),
+    Column("payload", Text, nullable=False), Column("recorded_at", DateTime(timezone=True), nullable=False),
+)
 
 
 def _database_url(value: Optional[str]) -> str:
@@ -404,10 +422,48 @@ class TaskRepository:
             ).scalar_one_or_none()
         return model.model_validate_json(payload) if payload else None
 
+    def save_replay_report(self, report: HistoricalReplayReport) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(insert(historical_replays).values(replay_id=report.replay_id, source_task_id=report.source_task_id, status=report.status, payload=report.model_dump_json(), created_at=report.created_at))
+
+    def get_replay_report(self, replay_id: str) -> Optional[HistoricalReplayReport]:
+        with self.engine.connect() as connection:
+            payload = connection.execute(select(historical_replays.c.payload).where(historical_replays.c.replay_id == replay_id)).scalar_one_or_none()
+        return HistoricalReplayReport.model_validate_json(payload) if payload else None
+
+    def get_rollout_policy(self, workshop_id: str) -> Optional[RolloutPolicy]:
+        with self.engine.connect() as connection:
+            payload = connection.execute(select(rollout_policies.c.payload).where(rollout_policies.c.workshop_id == workshop_id)).scalar_one_or_none()
+        return RolloutPolicy.model_validate_json(payload) if payload else None
+
+    def save_rollout_policy(self, policy: RolloutPolicy, expected_version: Optional[int] = None) -> RolloutPolicy:
+        with self._lock, self.engine.begin() as connection:
+            statement = select(rollout_policies.c.version).where(rollout_policies.c.workshop_id == policy.workshop_id)
+            if not self._is_sqlite:
+                statement = statement.with_for_update()
+            current = connection.execute(statement).scalar_one_or_none()
+            current_version = int(current) if current is not None else 0
+            if expected_version is not None and expected_version != current_version:
+                raise VersionConflictError("灰度策略版本已变化：期望 %s，当前 %s" % (expected_version, current_version))
+            policy.version = current_version + 1
+            policy.updated_at = utc_now()
+            payload = policy.model_dump_json()
+            if current is None:
+                connection.execute(insert(rollout_policies).values(workshop_id=policy.workshop_id, version=policy.version, mode=policy.mode.value, payload=payload, updated_at=policy.updated_at))
+            else:
+                connection.execute(update(rollout_policies).where(rollout_policies.c.workshop_id == policy.workshop_id, rollout_policies.c.version == current_version).values(version=policy.version, mode=policy.mode.value, payload=payload, updated_at=policy.updated_at))
+            connection.execute(insert(rollout_policy_history).values(workshop_id=policy.workshop_id, version=policy.version, payload=payload, recorded_at=policy.updated_at))
+        return policy
+
+    def list_rollout_history(self, workshop_id: str) -> List[RolloutPolicy]:
+        with self.engine.connect() as connection:
+            rows = connection.execute(select(rollout_policy_history.c.payload).where(rollout_policy_history.c.workshop_id == workshop_id).order_by(rollout_policy_history.c.version.desc())).scalars().all()
+        return [RolloutPolicy.model_validate_json(payload) for payload in rows]
+
     def clear_all(self) -> None:
         """仅供隔离测试使用。"""
         with self.engine.begin() as connection:
-            for table in (shadow_runs, outbox_events, queue_jobs, scheduling_task_history, scheduling_tasks):
+            for table in (rollout_policy_history, rollout_policies, historical_replays, shadow_runs, outbox_events, queue_jobs, scheduling_task_history, scheduling_tasks):
                 connection.execute(delete(table))
 
 

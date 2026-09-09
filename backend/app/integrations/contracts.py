@@ -27,6 +27,7 @@ class ToolingResource(BaseModel):
     tool_id: str
     name: str
     compatible_products: List[str]
+    required_processes: List[str] = Field(default_factory=lambda: ["组装"])
     status: Literal["available", "reserved", "maintenance"] = "available"
     available_from: Optional[datetime] = None
 

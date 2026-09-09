@@ -7,10 +7,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from ...integrations.contracts import ShadowRunReport, ShadowRunRequest
-from ...models.schemas import DataSource, PlanVersion, QueueJob, ResourceSnapshot, ReviewRequest, SchedulingRequest, TaskSnapshot
+from ...models.schemas import DataSource, HistoricalReplayReport, HistoricalReplayRequest, PlanVersion, QueueJob, ResourceSnapshot, ReviewRequest, RolloutPolicy, RolloutRollbackRequest, RolloutUpdate, SchedulingRequest, TaskSnapshot
 from ...repositories.task_repository import VersionConflictError, get_task_repository
 from ...services.scheduling_service import SchedulingService, get_scheduling_service
 from ...services.queue_service import submit_job
+from ...services.replay_service import run_historical_replay
+from ...services.rollout_service import get_rollout_policy, rollback_rollout_policy, update_rollout_policy
 from ...services.shadow_service import run_shadow_validation
 from ...services.workbench_service import list_plan_versions, read_resource_snapshot
 
@@ -115,6 +117,55 @@ async def get_shadow_run(shadow_run_id: str):
     if not report:
         raise HTTPException(status_code=404, detail="影子验证记录不存在")
     return report
+
+
+@router.post("/replays", response_model=HistoricalReplayReport)
+async def create_replay(command: HistoricalReplayRequest):
+    """使用历史工单重新求解，并与同期人工计划基准对照。"""
+    try:
+        return await run_historical_replay(command)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="历史来源任务不存在或没有计划")
+
+
+@router.get("/replays/{replay_id}", response_model=HistoricalReplayReport)
+async def get_replay(replay_id: str):
+    report = get_task_repository().get_replay_report(replay_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="历史回放记录不存在")
+    return report
+
+
+@router.get("/rollouts/{workshop_id}", response_model=RolloutPolicy)
+async def read_rollout(workshop_id: str):
+    return get_rollout_policy(workshop_id)
+
+
+@router.put("/rollouts/{workshop_id}", response_model=RolloutPolicy)
+async def configure_rollout(workshop_id: str, command: RolloutUpdate):
+    try:
+        return update_rollout_policy(workshop_id, command)
+    except VersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/rollouts/{workshop_id}/history", response_model=List[RolloutPolicy])
+async def read_rollout_history(workshop_id: str):
+    return get_task_repository().list_rollout_history(workshop_id)
+
+
+@router.post("/rollouts/{workshop_id}/rollback", response_model=RolloutPolicy)
+async def rollback_rollout(workshop_id: str, command: RolloutRollbackRequest):
+    try:
+        return rollback_rollout_policy(workshop_id, command)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="车间尚未建立灰度策略")
+    except VersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/tasks/{task_id}/review", response_model=TaskSnapshot)

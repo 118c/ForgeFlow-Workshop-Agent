@@ -4,7 +4,7 @@ ForgeFlow 提供两种明确隔离的运行剖面。
 
 | 剖面 | 持久化 | 协调 | 任务执行 | 用途 |
 |---|---|---|---|---|
-| `local` | SQLite | 进程内锁与幂等缓存 | inline | 本机开发、面试展示 |
+| `local` | SQLite | 进程内锁与幂等缓存 | inline | 单机开发与离线验证 |
 | `enterprise` | PostgreSQL | Redis 分布式锁与幂等缓存 | Celery | 多实例部署与业务联调 |
 
 ## 启动企业基础设施
@@ -28,3 +28,12 @@ API 为 `http://localhost:8000`。Celery worker 执行排程任务，Celery beat
 先生成候选任务，再调用 `POST /api/scheduling/shadow-runs`。真实模式会并行读取 MES、WMS、EAM、HR、QMS 的版本化快照，执行七类一致性检查并输出与人工计划的指标差异。影子报告固定 `publish_blocked=true`，不会触发 MES 下发。
 
 详细上游字段定义见 [OpenAPI 数据契约](integration-contracts.openapi.yaml)。
+
+## 历史回放与灰度发布
+
+- `POST /api/scheduling/replays`：按历史任务的生产日与工单重新执行 CP-SAT，并读取 MES 人工计划基准进行指标对照；
+- `PUT /api/scheduling/rollouts/{workshop_id}`：将指定车间设置为 shadow、canary 或 active；
+- `GET /api/scheduling/rollouts/{workshop_id}/history`：查询完整策略版本；
+- `POST /api/scheduling/rollouts/{workshop_id}/rollback`：以乐观锁恢复上一版策略并生成新的审计版本。
+
+企业剖面下，未配置策略的车间默认处于 shadow 状态。人工核准仍会持久化，但只有通过灰度门禁的任务才会创建 MES Outbox 事件。

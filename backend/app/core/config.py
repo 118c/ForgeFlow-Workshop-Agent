@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     idempotency_ttl_seconds: int = 86400
     outbox_claim_lease_seconds: int = 60
     shadow_data_max_age_seconds: int = 900
+    solver_time_limit_seconds: float = 10.0
+    solver_workers: int = 8
+    changeover_minutes: int = 20
     mock_latency_ms: int = 180
 
     langchain_tracing_v2: bool = False

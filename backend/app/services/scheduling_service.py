@@ -20,6 +20,7 @@ from ..models.schemas import (
 )
 from ..repositories.task_repository import TaskRepository, get_task_repository
 from .outbox_service import dispatch_outbox_once
+from .rollout_service import may_publish
 
 
 NODE_MESSAGES = {
@@ -183,7 +184,7 @@ class SchedulingService:
             )
         )
         outbox_event = None
-        if snapshot.status == TaskStatus.APPROVED and snapshot.plan:
+        if snapshot.status == TaskStatus.APPROVED and snapshot.plan and may_publish(task_id, snapshot.request.workshop_id, self.repository):
             outbox_event = {
                 "event_id": "evt-%s" % uuid.uuid4().hex,
                 "event_type": "mes.plan.release.requested",
@@ -195,6 +196,8 @@ class SchedulingService:
             }
             if get_settings().task_execution_mode.lower() == "celery":
                 snapshot.warnings.append("MES 下发请求已写入可靠事件队列")
+        elif snapshot.status == TaskStatus.APPROVED and snapshot.plan:
+            snapshot.warnings.append("当前车间发布策略未放行，本次计划仅保留审核记录")
 
         # 审核事实与 MES 下发意图在同一数据库事务中提交。
         saved = self.repository.save(

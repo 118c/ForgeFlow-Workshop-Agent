@@ -26,6 +26,9 @@ async def runtime_config():
             "provider_failover": True,
             "transactional_outbox": True,
             "shadow_validation": True,
+            "cp_sat_solver": True,
+            "historical_replay": True,
+            "workshop_rollout": True,
         },
     }
 

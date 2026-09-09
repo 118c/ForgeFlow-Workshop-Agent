@@ -5,9 +5,13 @@ import pytest
 
 from app.core.redis_runtime import RedisCoordinator
 from app.integrations.contracts import ShadowRunRequest
-from app.models.schemas import SchedulingRequest
+from app.models.schemas import HistoricalReplayRequest, ReviewRequest, RolloutRollbackRequest, RolloutUpdate, SchedulingRequest
 from app.repositories.task_repository import TaskRepository
 from app.services.queue_service import submit_job
+from app.services.constraint_solver import ConstraintInfeasibleError, solve_workshop_schedule
+from app.services.business_gateway import MockWorkshopGateway
+from app.services.replay_service import run_historical_replay
+from app.services.rollout_service import may_publish, rollback_rollout_policy, update_rollout_policy
 from app.services.scheduling_service import SchedulingService
 from app.services.shadow_service import run_shadow_validation
 
@@ -33,6 +37,48 @@ async def test_shadow_run_validates_all_five_system_boundaries(tmp_path):
     assert set(report.source_versions) == {"MES", "WMS", "EAM", "HR", "QMS"}
     assert len(report.checks) == 7
     assert repository.get_shadow_report(report.shadow_run_id, type(report)) is not None
+
+
+@pytest.mark.asyncio
+async def test_historical_replay_compares_manual_baseline_without_publish(tmp_path):
+    repository = TaskRepository(str(tmp_path / "replay.db"))
+    source = await SchedulingService(repository).run(SchedulingRequest())
+    report = await run_historical_replay(HistoricalReplayRequest(source_task_id=source.task_id, data_source="mock"), repository)
+    assert report.baseline_type == "manual_plan"
+    assert report.publish_blocked is True
+    assert repository.get_replay_report(report.replay_id) == report
+
+
+def test_workshop_rollout_canary_and_one_click_rollback(tmp_path):
+    repository = TaskRepository(str(tmp_path / "rollout.db"))
+    shadow = update_rollout_policy("DIP-A", RolloutUpdate(mode="shadow", updated_by="ops", expected_version=0), repository)
+    canary = update_rollout_policy("DIP-A", RolloutUpdate(mode="canary", traffic_percent=10, updated_by="ops", expected_version=shadow.version), repository)
+    assert canary.traffic_percent == 10
+    restored = rollback_rollout_policy("DIP-A", RolloutRollbackRequest(updated_by="ops", expected_version=canary.version), repository)
+    assert restored.mode.value == "shadow"
+    assert restored.version == 3
+    assert may_publish("task-any", "DIP-A", repository) is False
+
+
+@pytest.mark.asyncio
+async def test_shadow_rollout_blocks_mes_outbox(tmp_path):
+    repository = TaskRepository(str(tmp_path / "release-gate.db"))
+    task = await SchedulingService(repository).run(SchedulingRequest())
+    update_rollout_policy("DIP-A", RolloutUpdate(mode="shadow", updated_by="ops", expected_version=0), repository)
+    approved = await SchedulingService(repository).review(task.task_id, ReviewRequest(action="approve", expected_version=task.version),)
+    assert approved.status.value == "approved"
+    assert any("发布策略未放行" in item for item in approved.warnings)
+    assert repository.claim_outbox() == []
+
+
+@pytest.mark.asyncio
+async def test_cp_sat_rejects_material_shortage():
+    request = SchedulingRequest()
+    snapshot = await MockWorkshopGateway().collect_validation_snapshot(request)
+    state = snapshot.model_dump(mode="json")
+    state["materials"][0]["available_quantity"] = 0
+    with pytest.raises(ConstraintInfeasibleError, match="物料未齐套"):
+        solve_workshop_schedule(state)
 
 
 @pytest.mark.skipif(not os.getenv("TEST_POSTGRES_URL"), reason="需要 PostgreSQL 集成环境")

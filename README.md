@@ -1,20 +1,23 @@
 # ForgeFlow — 车间多任务作业规划 Agent
 
-ForgeFlow 是一个面向排程主管、线长和 IE 工程师的制造作业规划参考实现。系统以 FastAPI、LangGraph 和 Vue 3 为基础，将资源读取、班组校验、工位分配、方案生成和人工审核组织成可恢复、可追踪的五节点流程。
+ForgeFlow 是面向排程主管、线长和 IE 工程师的制造作业规划服务。系统以 FastAPI、LangGraph、OR-Tools 和 Vue 3 为基础，将资源读取、约束求解、方案生成和人工审核组织成可恢复、可追踪的五节点流程。
 
-项目提供可直接运行的内置资料适配器，并实现 MES、WMS、EAM、HR、QMS 的版本化 HTTP 数据契约。运行时支持本地 SQLite/inline 和企业 PostgreSQL/Redis/Celery 两套剖面；它不是任何企业的生产源码，也不代表已经通过真实产线验收。
+项目提供可直接运行的内置资料适配器，并实现 MES、WMS、EAM、HR、QMS 的版本化 HTTP 数据契约。运行时支持本地 SQLite/inline 和企业 PostgreSQL/Redis/Celery 两套剖面。
 
 ## 功能
 
-- 计划编排：通过 SSE 实时展示五节点执行状态、耗时和降级信息；
+- 计划编排：通过 SSE 实时呈现五节点执行状态、耗时和降级信息；
 - 任务中心：查询任务、状态、车间、计划版本及执行节点；
 - 审核中心：支持核准、修改、退回和乐观锁版本校验；
-- 资源台账：展示设备状态、OEE、产能、维护窗口、班组到岗和技能矩阵；
+- 资源台账：呈现设备状态、OEE、产能、维护窗口、班组到岗和技能矩阵；
 - 版本比较：比较准时率、平均负载、加班、换线和风险；
 - 运行追踪：按 `task_id` 与 `trace_id` 查看节点摘要和人工操作记录；
 - 可靠任务：幂等提交、Redis 分布式锁、Celery worker 与任务状态查询；
 - 一致性发布：审核记录与 MES 下发意图通过 Transactional Outbox 原子提交；
 - 影子验证：使用五套系统的只读快照核验七类约束，并与人工计划指标对照；
+- 约束求解：使用 OR-Tools CP-SAT 处理物料、治具、换线、设备日历、人员技能和制程顺序；
+- 历史回放：按历史生产日重新求解，并与同期人工计划比较准时率、负载、加班和换线；
+- 灰度控制：按车间配置 shadow/canary/active 发布门禁，保留策略版本并支持一键回退；
 - 多模型适配：DeepSeek、阿里云百炼和 OpenAI 兼容接口，可按配置降级；
 - 三语界面：默认繁体中文，支持简体中文与英文。
 
@@ -38,7 +41,7 @@ LangGraph StateGraph
       ├── Built-in WorkshopGateway
       └── HTTP WorkshopGateway ── MES / WMS / EAM / HR / QMS
 
-确定性规划器负责生成可执行基线
+OR-Tools CP-SAT 负责生成满足硬约束的可执行方案
 LLM 负责方案说明、风险摘要和建议增强
 人工审核负责不可逆的计划下发决策
 ```
@@ -77,7 +80,7 @@ npm run dev
 - OpenAPI：`http://localhost:8000/docs`
 - 健康检查：`http://localhost:8000/health`
 
-默认配置使用内置基线数据和确定性规划器，不需要配置 LLM 密钥，也不会访问外部业务系统。
+默认配置使用内置基线资料和 CP-SAT 求解器，不需要配置 LLM 密钥，也不会访问外部业务系统。
 
 如需启动 PostgreSQL、Redis、API、Celery worker 与 beat 的完整基础设施：
 
@@ -127,6 +130,11 @@ BUSINESS_API_TIMEOUT_SECONDS=5
 | GET | `/api/scheduling/plans/versions` | 获取方案版本与比较指标 |
 | POST | `/api/scheduling/shadow-runs` | 五系统只读影子验证 |
 | GET | `/api/scheduling/shadow-runs/{shadow_run_id}` | 获取影子验证报告 |
+| POST | `/api/scheduling/replays` | 执行历史生产资料回放 |
+| GET | `/api/scheduling/replays/{replay_id}` | 获取人工计划对照结果 |
+| GET/PUT | `/api/scheduling/rollouts/{workshop_id}` | 查询或设置单车间灰度策略 |
+| GET | `/api/scheduling/rollouts/{workshop_id}/history` | 查询灰度策略版本 |
+| POST | `/api/scheduling/rollouts/{workshop_id}/rollback` | 一键回退上一版策略 |
 | GET | `/api/config/runtime` | 查询运行配置与模型状态 |
 
 旧 SSE 地址 `/api/trip/plan/stream` 仅作为迁移兼容层保留。
@@ -157,12 +165,9 @@ GitHub Actions 会在每次 push 和 pull request 时执行后端测试、前端
 
 当前实现已经完成可替换的企业运行底座，但生产接入前仍需要完成：
 
-- 接入 OR-Tools CP-SAT，补齐物料、治具、换线、设备日历和人员技能硬约束；
 - 将自动建表替换为 Alembic 受控迁移，并完成容量、故障与恢复压测；
 - 完成 SSO/RBAC、密钥托管、不可篡改审计、监控告警和多实例容灾；
-- 使用经授权的真实历史数据运行现有影子验证流程，确定准入阈值后开展单车间灰度。
-
-完整演进路径与验收门槛见[生产化落地方案](docs/生產化落地方案.md)。
+- 使用经授权的真实历史数据校准求解参数、回放基准和灰度准入阈值。
 
 ## 安全说明
 

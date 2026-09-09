@@ -57,6 +57,7 @@ export interface Assignment {
   device_id: string
   shift_code: string
   team_name: string
+  tool_id?: string
   planned_quantity: number
   start_at: string
   end_at: string
@@ -81,6 +82,7 @@ export interface SchedulingPlan {
   recommendations: string[]
   generated_by: string
   degraded: boolean
+  solver_metadata: Record<string, unknown>
 }
 
 export interface DeviceResource {
@@ -93,6 +95,7 @@ export interface DeviceResource {
   oee: number
   capacity_per_hour: number
   next_maintenance_at?: string
+  calendar_windows?: Array<{ start_at: string; end_at: string }>
 }
 
 export interface ShiftResource {
@@ -163,4 +166,27 @@ export interface StreamEvent {
   message: string
   data?: Record<string, any>
   steps: AgentStep[]
+}
+
+export interface RolloutPolicy {
+  workshop_id: string
+  mode: 'disabled' | 'shadow' | 'canary' | 'active'
+  traffic_percent: number
+  version: number
+  updated_by: string
+  reason: string
+  updated_at: string
+}
+
+export interface HistoricalReplayReport {
+  replay_id: string
+  source_task_id: string
+  replay_task_id: string
+  status: string
+  baseline_type: string
+  baseline_metrics: PlanVersion['metrics']
+  replay_metrics: PlanVersion['metrics']
+  deltas: Record<string, number>
+  publish_blocked: boolean
+  created_at: string
 }

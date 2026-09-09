@@ -3,7 +3,7 @@
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Tuple
 
 import httpx
@@ -63,7 +63,7 @@ class MockWorkshopGateway(WorkshopGateway):
         await self._latency()
         shifts = {
             "DAY": ShiftResource(shift_code="DAY", team_id="T-A", team_name="甲班", start_at=production_date + "T08:00:00+08:00", end_at=production_date + "T20:00:00+08:00", headcount=18, skill_tags=["组装", "测试", "包装"], attendance_rate=0.94),
-            "NIGHT": ShiftResource(shift_code="NIGHT", team_id="T-B", team_name="乙班", start_at=production_date + "T20:00:00+08:00", end_at=production_date + "T23:59:59+08:00", headcount=15, skill_tags=["组装", "测试", "包装"], attendance_rate=0.88),
+            "NIGHT": ShiftResource(shift_code="NIGHT", team_id="T-B", team_name="乙班", start_at=production_date + "T20:00:00+08:00", end_at=(datetime.fromisoformat(production_date) + timedelta(days=1)).date().isoformat() + "T08:00:00+08:00", headcount=15, skill_tags=["组装", "测试", "包装"], attendance_rate=0.88),
         }
         return [shifts[code] for code in shift_codes if code in shifts]
 
@@ -79,7 +79,7 @@ class MockWorkshopGateway(WorkshopGateway):
         )
         sources = {system: SourceMetadata(system=system, source_version="%s-BASELINE-1" % system, captured_at=now) for system in ("MES", "WMS", "EAM", "HR", "QMS")}
         materials = [MaterialReadiness(order_id=o.order_id, material_code="KIT-%s" % o.product_code, required_quantity=o.quantity, available_quantity=o.quantity, ready_at=now, lot_codes=["LOT-%s" % o.order_id[-3:]]) for o in orders]
-        tooling = [ToolingResource(tool_id="FIX-%02d" % (i + 1), name="%s 共用治具" % o.product_code, compatible_products=[o.product_code]) for i, o in enumerate(orders)]
+        tooling = [ToolingResource(tool_id="FIX-%02d" % (i + 1), name="%s 共用治具" % o.product_code, compatible_products=[o.product_code], required_processes=["组装"]) for i, o in enumerate(orders)]
         quality = [QualityConstraint(product_code=o.product_code, quality_status="released", first_article_required=True, inspection_minutes=15) for o in orders]
         manual = ManualPlanReference(reference_id="MAN-%s-%s" % (request.workshop_id, request.production_date.replace("-", "")), workshop_id=request.workshop_id, production_date=request.production_date, metrics=PlanVersionMetrics(planned_quantity=sum(o.quantity for o in orders), average_utilization=0.82, risk_count=2, overtime_minutes=45, changeover_count=max(0, len(orders) - 1), on_time_rate=0.9))
         return ValidationDataSnapshot(snapshot_id="VS-%s" % uuid.uuid4().hex[:12].upper(), captured_at=now, sources=sources, work_orders=orders, devices=devices, shifts=shifts, materials=materials, tooling=tooling, quality_constraints=quality, manual_plan=manual)

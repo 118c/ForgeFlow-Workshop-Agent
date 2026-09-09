@@ -41,6 +41,13 @@ class QueueJobStatus(str, Enum):
     FAILED = "failed"
 
 
+class RolloutMode(str, Enum):
+    DISABLED = "disabled"
+    SHADOW = "shadow"
+    CANARY = "canary"
+    ACTIVE = "active"
+
+
 class ReviewAction(str, Enum):
     APPROVE = "approve"
     MODIFY = "modify"
@@ -99,6 +106,11 @@ class SchedulingRequest(BaseModel):
     require_human_review: bool = Field(default=True)
 
 
+class AvailabilityWindow(BaseModel):
+    start_at: str
+    end_at: str
+
+
 class DeviceResource(BaseModel):
     device_id: str
     name: str
@@ -109,6 +121,7 @@ class DeviceResource(BaseModel):
     oee: float = Field(default=0.85, ge=0, le=1)
     capacity_per_hour: int = Field(default=80, gt=0)
     next_maintenance_at: Optional[str] = None
+    calendar_windows: List[AvailabilityWindow] = Field(default_factory=list)
 
 
 class ShiftResource(BaseModel):
@@ -144,6 +157,7 @@ class StationAssignment(BaseModel):
     device_id: str
     shift_code: str
     team_name: str
+    tool_id: Optional[str] = None
     planned_quantity: int
     start_at: str
     end_at: str
@@ -177,6 +191,7 @@ class SchedulingPlan(BaseModel):
     recommendations: List[str] = Field(default_factory=list)
     generated_by: str = "rule-fallback"
     degraded: bool = False
+    solver_metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class PlanVersionMetrics(BaseModel):
@@ -238,6 +253,10 @@ class AgentState(BaseModel):
     devices: List[Dict[str, Any]] = Field(default_factory=list)
     shifts: List[Dict[str, Any]] = Field(default_factory=list)
     work_orders: List[Dict[str, Any]] = Field(default_factory=list)
+    materials: List[Dict[str, Any]] = Field(default_factory=list)
+    tooling: List[Dict[str, Any]] = Field(default_factory=list)
+    quality_constraints: List[Dict[str, Any]] = Field(default_factory=list)
+    solver_metadata: Dict[str, Any] = Field(default_factory=dict)
     assignments: List[Dict[str, Any]] = Field(default_factory=list)
     plan: Optional[Dict[str, Any]] = None
     current_node: str = ""
@@ -279,6 +298,51 @@ class QueueJob(BaseModel):
     error: Optional[str] = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class RolloutPolicy(BaseModel):
+    workshop_id: str
+    mode: RolloutMode = RolloutMode.SHADOW
+    traffic_percent: int = Field(default=0, ge=0, le=100)
+    version: int = Field(default=1, ge=0)
+    updated_by: str
+    reason: str = ""
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class RolloutUpdate(BaseModel):
+    mode: RolloutMode
+    traffic_percent: int = Field(default=0, ge=0, le=100)
+    updated_by: str
+    reason: str = ""
+    expected_version: Optional[int] = Field(default=None, ge=0)
+
+
+class RolloutRollbackRequest(BaseModel):
+    updated_by: str
+    reason: str = "紧急回退"
+    expected_version: Optional[int] = Field(default=None, ge=1)
+
+
+class HistoricalReplayRequest(BaseModel):
+    source_task_id: str
+    data_source: DataSource = DataSource.MOCK
+    requested_by: str = "IE 工程师"
+
+
+class HistoricalReplayReport(BaseModel):
+    replay_id: str
+    source_task_id: str
+    replay_task_id: str
+    status: str
+    data_source: DataSource
+    baseline_type: str
+    baseline_metrics: PlanVersionMetrics
+    replay_metrics: PlanVersionMetrics
+    deltas: Dict[str, float]
+    publish_blocked: bool = True
+    requested_by: str
+    created_at: datetime = Field(default_factory=utc_now)
 
 
 class StreamEvent(BaseModel):

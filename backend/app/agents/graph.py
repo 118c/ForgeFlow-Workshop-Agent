@@ -19,6 +19,10 @@ class GraphState(TypedDict):
     devices: List[Dict[str, Any]]
     shifts: List[Dict[str, Any]]
     work_orders: List[Dict[str, Any]]
+    materials: List[Dict[str, Any]]
+    tooling: List[Dict[str, Any]]
+    quality_constraints: List[Dict[str, Any]]
+    solver_metadata: Dict[str, Any]
     assignments: List[Dict[str, Any]]
     plan: Optional[Dict[str, Any]]
     current_node: str

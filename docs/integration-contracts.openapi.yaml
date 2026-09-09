@@ -94,11 +94,11 @@ components:
     Equipment:
       type: object
       required: [device_id, station_code, capability, status, capacity_per_hour]
-      properties: {device_id: {type: string}, name: {type: string}, line_code: {type: string}, station_code: {type: string}, capability: {type: array, items: {type: string}}, status: {type: string}, oee: {type: number}, capacity_per_hour: {type: integer}, next_maintenance_at: {type: string, format: date-time}}
+      properties: {device_id: {type: string}, name: {type: string}, line_code: {type: string}, station_code: {type: string}, capability: {type: array, items: {type: string}}, status: {type: string}, oee: {type: number}, capacity_per_hour: {type: integer}, next_maintenance_at: {type: string, format: date-time}, calendar_windows: {type: array, items: {type: object, required: [start_at, end_at], properties: {start_at: {type: string, format: date-time}, end_at: {type: string, format: date-time}}}}}
     Tooling:
       type: object
       required: [tool_id, compatible_products, status]
-      properties: {tool_id: {type: string}, name: {type: string}, compatible_products: {type: array, items: {type: string}}, status: {enum: [available, reserved, maintenance]}, available_from: {type: string, format: date-time}}
+      properties: {tool_id: {type: string}, name: {type: string}, compatible_products: {type: array, items: {type: string}}, required_processes: {type: array, items: {type: string}}, status: {enum: [available, reserved, maintenance]}, available_from: {type: string, format: date-time}}
     Shift:
       type: object
       required: [shift_code, team_id, start_at, end_at, headcount, skill_tags]

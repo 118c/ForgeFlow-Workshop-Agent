@@ -12,6 +12,7 @@
         <button :class="['nav-item',{active:activeView==='resources'}]" @click="activeView='resources'"><span>▤</span>{{ t('navResources') }}<i>04</i></button>
         <button :class="['nav-item',{active:activeView==='compare'}]" @click="activeView='compare'"><span>⇄</span>{{ t('navCompare') }}<i>05</i></button>
         <button :class="['nav-item',{active:activeView==='trace'}]" @click="activeView='trace'"><span>⌇</span>{{ t('navTrace') }}<i>06</i></button>
+        <button :class="['nav-item',{active:activeView==='release'}]" @click="activeView='release'"><span>◫</span>{{ t('navRelease') }}<i>07</i></button>
       </nav>
       <div class="rail-note">
         <span class="pulse"></span>
@@ -144,7 +145,8 @@
       <ReviewCenter v-else-if="activeView === 'reviews'" :locale="locale" :initial-task-id="selectedTaskId" @reviewed="onReviewed" />
       <ResourceCenter v-else-if="activeView === 'resources'" :locale="locale" />
       <PlanCompare v-else-if="activeView === 'compare'" :locale="locale" @open-review="openReview" />
-      <TraceCenter v-else :locale="locale" :initial-task-id="selectedTaskId" />
+      <TraceCenter v-else-if="activeView === 'trace'" :locale="locale" :initial-task-id="selectedTaskId" />
+      <ReleaseControl v-else :locale="locale" />
 
       <footer class="page-foot"><span>{{ t('footer') }}</span><span class="mono">SSE / LANGGRAPH / HITL / MULTI-LLM</span></footer>
     </main>
@@ -154,6 +156,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import PlanCompare from '../components/PlanCompare.vue'
+import ReleaseControl from '../components/ReleaseControl.vue'
 import ResourceCenter from '../components/ResourceCenter.vue'
 import ReviewCenter from '../components/ReviewCenter.vue'
 import TaskCenter from '../components/TaskCenter.vue'
@@ -166,43 +169,43 @@ const savedLocale = localStorage.getItem('forgeflow-locale')
 const locale = ref<Locale>((['zh-TW', 'zh-CN', 'en-US'].includes(savedLocale || '') ? savedLocale : 'zh-TW') as Locale)
 const messages: Record<Locale, Record<string, string>> = {
   'zh-TW': {
-    brandSubtitle: '作業規劃中樞', mainNav: '主要功能', navPlanning: '計畫編排', navTasks: '任務中心', navReview: '審核中心', navResources: '資源台帳', navCompare: '版本比較', navTrace: '運行追蹤',
+    brandSubtitle: '作業規劃中樞', mainNav: '主要功能', navPlanning: '計畫編排', navTasks: '任務中心', navReview: '審核中心', navResources: '資源台帳', navCompare: '版本比較', navTrace: '運行追蹤', navRelease: '發佈控制',
     runtimeOnline: '系統服務在線', runtimeDetail: '業務閘道 · 狀態儲存', pageTitle: '車間多任務作業規劃', serviceStatus: '服務狀態', ready: '全部就緒', waitingBackend: '等待服務', language: '語言',
     createPlan: '建立今日計畫', builtInSource: '計畫資料庫', enterpriseSource: '企業整合資料源', factoryCode: '工廠代碼', workshop: '目標車間', productionDate: '生產日期', preferredTeam: '優先班組', autoMatch: '自動匹配', teamA: '甲班', teamB: '乙班',
     pendingOrders: '待排工單', workOrderNo: '工單號', productCode: '產品料號', quantity: '數量', priority: '優先級', priority1: 'P1 緊急', priority2: 'P2 高', priority3: 'P3 常規', ruleEngineFirst: '規則引擎優先', mandatoryReview: '強制人工審核', businessSource: '業務資料來源', planning: '編排執行中', startPlanning: '啟動智慧排程',
     agentRail: 'Agent 生產軌道', deviceLabel: '設備資源檢索', shiftLabel: '班組排班查詢', assignLabel: '工位任務分配', planLabel: '作業方案產生', reviewLabel: '人工審核', completed: '已完成', running: '執行中', degraded: '安全降級', availableDevices: '可用設備', deviceUnit: '台 / 能力已匹配', onDuty: '當班人數', peopleUnit: '人 / 日夜兩班', averageLoad: '平均負載', loadNote: '約束計算後估算', orchestrationTime: '編排耗時', timeNote: '五節點累計',
     stationTimeline: '工位執行時間軸', taskStation: '任務 / 工位', supervisorReview: '主管覆核', reviewHelp: '計畫不會自動進入產線。確認資源、交期與風險後再下發 MES。', plannedQuantity: '計畫數量', estimatedCompletion: '預計完成', reviewPlaceholder: '填寫審核意見（選填）', rejectPlan: '退回計畫', approvePublish: '核准並下發', approvedMessage: '審核已通過，MES 介面已接收計畫', rejectedMessage: '計畫已退回，未下發產線', footer: 'FORGEFLOW · 製造執行系統智慧編排層',
     statusWaitingReview: '等待審核', statusApproved: '已核准下發', statusRejected: '已退回', statusProcessing: '產生中', statusFailed: '執行失敗', statusPending: '待執行',
-    descDevice: '接入設備台帳與即時狀態', descShift: '校驗到崗與技能約束', descAssign: '按製程能力計算負載', descPlan: '規則底座與風險建議', descReview: '保存檢查點並等待主管', doneDevice: '設備資源檢索完成', doneShift: '班組與工單資料已就緒', doneAssign: '工位任務分配完成', donePlan: '作業方案已產生', doneReview: '方案已進入人工審核',
+    descDevice: '接入設備台帳與即時狀態', descShift: '校驗到崗與技能約束', descAssign: '執行 CP-SAT 約束求解', descPlan: '彙整方案與風險建議', descReview: '保存檢查點並等待主管', doneDevice: '設備資源檢索完成', doneShift: '班組與工單資料已就緒', doneAssign: '約束求解與工位分配完成', donePlan: '作業方案已產生', doneReview: '方案已進入人工審核',
     processAssembly: '組裝', processTest: '測試', processPackage: '包裝', riskLow: '低', riskMedium: '中', riskHigh: '高', riskNormal: '資源與交期約束均在安全區間', mitigationNormal: '依標準班前點檢執行', riskData: '部分業務資料不可用，已套用安全基線資源', mitigationData: '主管確認設備與班組後再下發', riskCapacity: '至少一個工位負載超過單班額定產能', mitigationCapacity: '拆分批次至夜班或啟用跨線生產', riskAttendance: '夜班到崗率低於 90%', mitigationAttendance: '預留 2 名多能工並於班前確認到崗',
   },
   'zh-CN': {
-    brandSubtitle: '作业规划中枢', mainNav: '主要功能', navPlanning: '计划编排', navTasks: '任务中心', navReview: '审核中心', navResources: '资源台账', navCompare: '版本对比', navTrace: '运行追踪',
+    brandSubtitle: '作业规划中枢', mainNav: '主要功能', navPlanning: '计划编排', navTasks: '任务中心', navReview: '审核中心', navResources: '资源台账', navCompare: '版本对比', navTrace: '运行追踪', navRelease: '发布控制',
     runtimeOnline: '系统服务在线', runtimeDetail: '业务网关 · 状态存储', pageTitle: '车间多任务作业规划', serviceStatus: '服务状态', ready: '全部就绪', waitingBackend: '等待服务', language: '语言',
     createPlan: '创建今日计划', builtInSource: '计划数据库', enterpriseSource: '企业集成数据源', factoryCode: '工厂编码', workshop: '目标车间', productionDate: '生产日期', preferredTeam: '优先班组', autoMatch: '自动匹配', teamA: '甲班', teamB: '乙班',
     pendingOrders: '待排工单', workOrderNo: '工单号', productCode: '产品料号', quantity: '数量', priority: '优先级', priority1: 'P1 紧急', priority2: 'P2 高', priority3: 'P3 常规', ruleEngineFirst: '规则引擎优先', mandatoryReview: '强制人工审核', businessSource: '业务数据来源', planning: '编排执行中', startPlanning: '启动智能排产',
     agentRail: 'Agent 生产轨道', deviceLabel: '设备资源检索', shiftLabel: '班组排班查询', assignLabel: '工位任务分配', planLabel: '作业方案生成', reviewLabel: '人工审核', completed: '已完成', running: '执行中', degraded: '安全降级', availableDevices: '可用设备', deviceUnit: '台 / 能力已匹配', onDuty: '当班人数', peopleUnit: '人 / 日夜两班', averageLoad: '平均负载', loadNote: '约束计算后估算', orchestrationTime: '编排耗时', timeNote: '五节点累计',
     stationTimeline: '工位执行时间轴', taskStation: '任务 / 工位', supervisorReview: '主管复核', reviewHelp: '计划不会自动进入产线。确认资源、交期与风险后再下发 MES。', plannedQuantity: '计划数量', estimatedCompletion: '预计完成', reviewPlaceholder: '填写审核意见（选填）', rejectPlan: '退回计划', approvePublish: '批准并下发', approvedMessage: '审核已通过，MES 接口已接收计划', rejectedMessage: '计划已退回，未下发产线', footer: 'FORGEFLOW · 制造执行系统智能编排层',
     statusWaitingReview: '等待审核', statusApproved: '已批准下发', statusRejected: '已退回', statusProcessing: '生成中', statusFailed: '执行失败', statusPending: '待执行',
-    descDevice: '接入设备台账与实时状态', descShift: '校验到岗与技能约束', descAssign: '按工艺能力计算负载', descPlan: '规则底座与风险建议', descReview: '保存检查点并等待主管', doneDevice: '设备资源检索完成', doneShift: '班组与工单数据已就绪', doneAssign: '工位任务分配完成', donePlan: '作业方案已生成', doneReview: '方案已进入人工审核',
+    descDevice: '接入设备台账与实时状态', descShift: '校验到岗与技能约束', descAssign: '执行 CP-SAT 约束求解', descPlan: '汇总方案与风险建议', descReview: '保存检查点并等待主管', doneDevice: '设备资源检索完成', doneShift: '班组与工单数据已就绪', doneAssign: '约束求解与工位分配完成', donePlan: '作业方案已生成', doneReview: '方案已进入人工审核',
     processAssembly: '组装', processTest: '测试', processPackage: '包装', riskLow: '低', riskMedium: '中', riskHigh: '高', riskNormal: '资源与交期约束均在安全区间', mitigationNormal: '按标准班前点检执行', riskData: '部分业务数据不可用，已使用安全基线资源', mitigationData: '主管确认设备与班组后再下发', riskCapacity: '至少一个工位负载超过单班额定产能', mitigationCapacity: '拆分批次到夜班或启用跨线生产', riskAttendance: '夜班到岗率低于 90%', mitigationAttendance: '预留 2 名多能工并在班前确认到岗',
   },
   'en-US': {
-    brandSubtitle: 'Operations Planning Hub', mainNav: 'Primary navigation', navPlanning: 'Planning', navTasks: 'Task Center', navReview: 'Review Center', navResources: 'Resources', navCompare: 'Plan Compare', navTrace: 'Run Trace',
+    brandSubtitle: 'Operations Planning Hub', mainNav: 'Primary navigation', navPlanning: 'Planning', navTasks: 'Task Center', navReview: 'Review Center', navResources: 'Resources', navCompare: 'Plan Compare', navTrace: 'Run Trace', navRelease: 'Release Control',
     runtimeOnline: 'Services online', runtimeDetail: 'Business gateway · State store', pageTitle: 'Workshop Multi-Task Planning', serviceStatus: 'Service status', ready: 'All systems ready', waitingBackend: 'Waiting for service', language: 'Language',
     createPlan: 'Create daily plan', builtInSource: 'Planning database', enterpriseSource: 'Enterprise data source', factoryCode: 'Factory code', workshop: 'Workshop', productionDate: 'Production date', preferredTeam: 'Preferred team', autoMatch: 'Auto match', teamA: 'Team A', teamB: 'Team B',
     pendingOrders: 'Orders to schedule', workOrderNo: 'Work order', productCode: 'Product code', quantity: 'Quantity', priority: 'Priority', priority1: 'P1 Critical', priority2: 'P2 High', priority3: 'P3 Normal', ruleEngineFirst: 'Rules engine first', mandatoryReview: 'Mandatory review', businessSource: 'Business data source', planning: 'Planning in progress', startPlanning: 'Start planning',
     agentRail: 'Agent production rail', deviceLabel: 'Equipment retrieval', shiftLabel: 'Shift roster query', assignLabel: 'Station allocation', planLabel: 'Plan generation', reviewLabel: 'Human review', completed: 'Completed', running: 'Running', degraded: 'Safe fallback', availableDevices: 'Available equipment', deviceUnit: 'units / capability matched', onDuty: 'On-duty staff', peopleUnit: 'people / two shifts', averageLoad: 'Average load', loadNote: 'after constraint calculation', orchestrationTime: 'Orchestration time', timeNote: 'five-node total',
     stationTimeline: 'Station execution timeline', taskStation: 'Task / station', supervisorReview: 'Supervisor review', reviewHelp: 'The plan will not reach the line automatically. Verify resources, due dates and risks before publishing to MES.', plannedQuantity: 'Planned quantity', estimatedCompletion: 'Estimated finish', reviewPlaceholder: 'Add a review note (optional)', rejectPlan: 'Return plan', approvePublish: 'Approve & publish', approvedMessage: 'Approved; the MES interface accepted the plan', rejectedMessage: 'Plan returned and not released to production', footer: 'FORGEFLOW · Intelligent orchestration for manufacturing execution',
     statusWaitingReview: 'Awaiting review', statusApproved: 'Approved', statusRejected: 'Returned', statusProcessing: 'Generating', statusFailed: 'Failed', statusPending: 'Pending',
-    descDevice: 'Load equipment registry and live status', descShift: 'Validate attendance and skill constraints', descAssign: 'Calculate load by process capability', descPlan: 'Rule baseline and risk recommendations', descReview: 'Persist checkpoint and await supervisor', doneDevice: 'Equipment resources retrieved', doneShift: 'Shift and order data ready', doneAssign: 'Station tasks assigned', donePlan: 'Execution plan generated', doneReview: 'Plan entered supervisor review',
+    descDevice: 'Load equipment registry and live status', descShift: 'Validate attendance and skill constraints', descAssign: 'Solve the CP-SAT constraint model', descPlan: 'Compile the plan and risk guidance', descReview: 'Persist checkpoint and await supervisor', doneDevice: 'Equipment resources retrieved', doneShift: 'Shift and order data ready', doneAssign: 'Constraints solved and stations assigned', donePlan: 'Execution plan generated', doneReview: 'Plan entered supervisor review',
     processAssembly: 'Assembly', processTest: 'Test', processPackage: 'Packaging', riskLow: 'LOW', riskMedium: 'MED', riskHigh: 'HIGH', riskNormal: 'Resources and due-date constraints are within the safe range', mitigationNormal: 'Run the standard pre-shift inspection', riskData: 'Some business data was unavailable; safe baseline resources were applied', mitigationData: 'Verify equipment and shifts before release', riskCapacity: 'At least one station exceeds rated single-shift capacity', mitigationCapacity: 'Split the lot into the night shift or enable cross-line production', riskAttendance: 'Night-shift attendance is below 90%', mitigationAttendance: 'Reserve two multi-skilled operators and confirm attendance before shift',
   },
 }
 const t = (key: string) => messages[locale.value][key] || key
 watch(locale, value => { localStorage.setItem('forgeflow-locale', value); document.documentElement.lang = value }, { immediate: true })
 
-type WorkspaceView = 'planning' | 'tasks' | 'reviews' | 'resources' | 'compare' | 'trace'
+type WorkspaceView = 'planning' | 'tasks' | 'reviews' | 'resources' | 'compare' | 'trace' | 'release'
 const activeView = ref<WorkspaceView>('planning')
 const selectedTaskId = ref('')
 function openReview(id: string) { selectedTaskId.value = id; activeView.value = 'reviews' }

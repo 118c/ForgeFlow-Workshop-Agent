@@ -31,6 +31,10 @@ class WorkshopToolset:
         records = await self.gateway.get_work_orders(request)
         return [record.model_dump(mode="json") for record in records]
 
+    async def query_planning_snapshot(self, request: SchedulingRequest) -> Dict[str, Any]:
+        snapshot = await self.gateway.collect_validation_snapshot(request)
+        return snapshot.model_dump(mode="json")
+
     async def publish_approved_plan(self, task_id: str, plan: Dict[str, Any]) -> Dict[str, Any]:
         return await self.gateway.publish_plan(task_id, plan)
 
@@ -58,4 +62,3 @@ class WorkshopToolset:
 
 def get_toolset(data_source: str) -> WorkshopToolset:
     return WorkshopToolset(data_source)
-

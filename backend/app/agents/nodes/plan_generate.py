@@ -43,13 +43,14 @@ def _rule_plan(state: Dict[str, Any], generated_by: str, degraded: bool = False)
         recommendations=["高优工单优先锁定首件检验", "换线前执行物料齐套确认", "班后回写实际产量与停机原因"],
         generated_by=generated_by,
         degraded=degraded,
+        solver_metadata=state.get("solver_metadata", {}),
     )
 
 
 async def plan_generate_node(state: Dict[str, Any]) -> Dict[str, Any]:
     started = time.perf_counter()
     request = state["request"]
-    plan = _rule_plan(state, "deterministic-planner" if request.get("demo_mode") else "rule-fallback", bool(state.get("errors")))
+    plan = _rule_plan(state, "ortools-cp-sat", bool(state.get("errors")))
     provider = state["llm_provider"]
     llm_error = None
     if not request.get("demo_mode"):

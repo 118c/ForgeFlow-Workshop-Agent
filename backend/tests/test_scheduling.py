@@ -21,7 +21,9 @@ async def test_mock_pipeline_runs_five_nodes_and_waits_for_review(tmp_path):
     ]
     assert snapshot.plan is not None
     assert len(snapshot.plan.assignments) == 6
-    assert snapshot.plan.generated_by == "deterministic-planner"
+    assert snapshot.plan.generated_by == "ortools-cp-sat"
+    assert snapshot.plan.solver_metadata["status"] in {"OPTIMAL", "FEASIBLE"}
+    assert {item.tool_id for item in snapshot.plan.assignments if item.process == "组装"}
 
 
 @pytest.mark.asyncio
